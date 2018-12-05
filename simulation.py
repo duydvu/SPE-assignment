@@ -33,6 +33,7 @@ class Server:
         self.server_sleeping = None
         ''' statistics '''
         self.waitingTime = 0
+        self.responseTime = 0
         self.idleTime = 0
         ''' register a new server process '''
 
@@ -54,12 +55,14 @@ class Server:
                 j = self.Jobs.pop(0)
 
                 self.log('%d\t0\t%d\t%d\t%d\n'
-                           % (j.id, self.env.now, 1 if len(self.Jobs) > 0 else 0, len(self.Jobs)))
+                         % (j.id, self.env.now, 1 if len(self.Jobs) > 0 else 0, len(self.Jobs)))
 
                 ''' sum up the waiting time'''
                 self.waitingTime += self.env.now - j.arr_time
                 ''' yield an event for the job finish'''
                 yield self.env.timeout(random.expovariate(self.mu))
+                ''' sum up the response time'''
+                self.responseTime += self.env.now - j.arr_time
 
                 ''' Pass the job to one of the other servers '''
                 if other_servers is not None:
@@ -100,7 +103,8 @@ class JobGenerator:
                 self.server.Jobs.append(Job(self.nJobs, self.env.now))
                 print('job %d: t = %d' % (self.nJobs, self.env.now))
                 self.server.log('%d\t1\t%d\t%d\t%d\n'
-                    % (self.nJobs, self.env.now, 1 if len(self.server.Jobs) > 0 else 0, len(self.server.Jobs)))
+                                % (self.nJobs, self.env.now, 1 if len(self.server.Jobs) > 0 else 0,
+                                   len(self.server.Jobs)))
                 self.nJobs += 1
 
                 ''' if server is idle, wake it up'''
@@ -112,8 +116,8 @@ class JobGenerator:
 
 
 # parameters
-SIM_TIME = 2000
-LAMBDA = 4
+SIM_TIME = 500
+LAMBDA = 2
 MU1 = 1/.04
 MU2 = 1/.03
 MU3 = 1/.06
@@ -122,66 +126,121 @@ P12 = .5
 P21 = 1
 P31 = .6
 P41 = 1
+REPLICATE = 5
 MAX_NJOBS = 10 * SIM_TIME * LAMBDA
 
-# open the log files and write header
-loggers = []
-for device in ['cpu', 'printer', 'disk', 'io_device']:
-    logger = open('logs/' + device + '.csv', 'w')
-    logger.write('-1\t0\t0\t0\t0\n')
-    loggers.append(logger)
 
-# create a simulation environment
-env = simpy.Environment()
+cpu_stats = []
+printer_stats = []
+disk_stats = []
+io_device_stats = []
+for i in range(REPLICATE):
+    # open the log files and write header
+    loggers = []
+    for device in ['cpu', 'printer', 'disk', 'io_device']:
+        logger = open('logs/' + device + str(i) + '.csv', 'w')
+        logger.write('-1\t0\t0\t0\t0\n')
+        loggers.append(logger)
 
-# create servers
-SINK = Server(env)   # Dummy server used as a sink
-CPU = Server(env, MU1, loggers[0])
-PRINTER = Server(env, MU2, loggers[1])
-DISK = Server(env, MU3, loggers[2])
-IO_DEVICE = Server(env, MU4, loggers[3])
+    # create a simulation environment
+    env = simpy.Environment()
 
-# process the servers
-env.process(SINK.serve())
-env.process(CPU.serve([PRINTER, DISK], [P12, 1 - P12]))
-env.process(PRINTER.serve([CPU], [P21]))
-env.process(DISK.serve([CPU, SINK], [P31, 1 - P31]))
-env.process(IO_DEVICE.serve([CPU], [1]))
+    # create servers
+    SINK = Server(env)   # Dummy server used as a sink
+    CPU = Server(env, MU1, loggers[0])
+    PRINTER = Server(env, MU2, loggers[1])
+    DISK = Server(env, MU3, loggers[2])
+    IO_DEVICE = Server(env, MU4, loggers[3])
 
-MyJobGenerator = JobGenerator(env, IO_DEVICE, MAX_NJOBS, LAMBDA)
+    # process the servers
+    env.process(SINK.serve())
+    env.process(CPU.serve([PRINTER, DISK], [P12, 1 - P12]))
+    env.process(PRINTER.serve([CPU], [P21]))
+    env.process(DISK.serve([CPU, SINK], [P31, 1 - P31]))
+    env.process(IO_DEVICE.serve([CPU], [1]))
 
-# start the simulation
-random.seed(2018)
-env.run(until=SIM_TIME)
+    MyJobGenerator = JobGenerator(env, IO_DEVICE, MAX_NJOBS, LAMBDA)
+
+    # start the simulation
+    random.seed(2018)
+    env.run(until=SIM_TIME)
 
 
-# close the log file
-for logger in loggers:
-    logger.close()
+    # close the log file
+    for logger in loggers:
+        logger.close()
+
+    cpu_stats.append({
+        'waitingTime': CPU.waitingTime,
+        'responseTime': CPU.responseTime,
+        'idleTime': CPU.idleTime,
+    })
+    printer_stats.append({
+        'waitingTime': PRINTER.waitingTime,
+        'responseTime': PRINTER.responseTime,
+        'idleTime': PRINTER.idleTime,
+    })
+    disk_stats.append({
+        'waitingTime': DISK.waitingTime,
+        'responseTime': DISK.responseTime,
+        'idleTime': DISK.idleTime,
+    })
+    io_device_stats.append({
+        'waitingTime': IO_DEVICE.waitingTime,
+        'responseTime': IO_DEVICE.responseTime,
+        'idleTime': IO_DEVICE.idleTime,
+    })
+
 
 devices = [
     {
         'name': 'CPU',
-        'process': CPU
+        'stats': {
+            'waitingTime': np.mean([stats['waitingTime'] for stats in cpu_stats]),
+            'responseTime': np.mean([stats['responseTime'] for stats in cpu_stats]),
+            'idleTime': np.mean([stats['idleTime'] for stats in cpu_stats]),
+        }
     },
     {
         'name': 'PRINTER',
-        'process': PRINTER
+        'stats': {
+            'waitingTime': np.mean([stats['waitingTime'] for stats in printer_stats]),
+            'responseTime': np.mean([stats['responseTime'] for stats in printer_stats]),
+            'idleTime': np.mean([stats['idleTime'] for stats in printer_stats]),
+        }
     },
     {
         'name': 'DISK',
-        'process': DISK
+        'stats': {
+            'waitingTime': np.mean([stats['waitingTime'] for stats in disk_stats]),
+            'responseTime': np.mean([stats['responseTime'] for stats in disk_stats]),
+            'idleTime': np.mean([stats['idleTime'] for stats in disk_stats]),
+        }
     },
     {
         'name': 'IO_DEVICE',
-        'process': IO_DEVICE
+        'stats': {
+            'waitingTime': np.mean([stats['waitingTime'] for stats in io_device_stats]),
+            'responseTime': np.mean([stats['responseTime'] for stats in io_device_stats]),
+            'idleTime': np.mean([stats['idleTime'] for stats in io_device_stats]),
+        }
     },
 ]
 # print simulation statistics
 print('-------- Simulation performance -------------')
 for device in devices:
-    print(device['name'])
-    print('Total waiting time     : %.2f' % device['process'].waitingTime)
-    print('Average waiting time   : %.2f' % (device['process'].waitingTime / MyJobGenerator.nJobs))
-    U = 1 - device['process'].idleTime/SIM_TIME
-    print('Total server idle time : %.2f (U=%.2f)\n' % (device['process'].idleTime, U))
+    print(device['name'] + ':')
+    print('Total waiting time     : %.2f' % device['stats']['waitingTime'])
+    print('Average waiting time   : %.2f' % (device['stats']['waitingTime'] / MyJobGenerator.nJobs))
+    print('Total response time    : %.2f' % device['stats']['responseTime'])
+    print('Average response time  : %.2f' % (device['stats']['responseTime'] / MyJobGenerator.nJobs))
+    U = 1 - device['stats']['idleTime'] / SIM_TIME
+    print('Total server idle time : %.2f (U=%.2f)\n' % (device['stats']['idleTime'], U))
+
+print('Overall System:')
+print('Total waiting time     : %.2f' % np.sum([device['stats']['waitingTime'] for device in devices]))
+print('Average waiting time   : %.2f' % (np.sum([device['stats']['waitingTime'] for device in devices]) / MyJobGenerator.nJobs))
+print('Total response time    : %.2f' % np.sum([device['stats']['responseTime'] for device in devices]))
+print('Average response time  : %.2f' % (np.sum([device['stats']['responseTime'] for device in devices]) / MyJobGenerator.nJobs))
+U = 1 - np.sum([device['stats']['idleTime'] for device in devices]) / SIM_TIME / 4
+print('Total server idle time : %.2f (U=%.2f)\n' % (np.sum([device['stats']['idleTime'] for device in devices]), U))

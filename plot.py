@@ -5,7 +5,9 @@ import numpy as np
 for device in ['cpu', 'printer', 'disk', 'io_device']:
     # plot queue length log
     log = np.loadtxt('logs/' + device + '.csv', delimiter='\t')
-    plt.figure(figsize=(10, 10))
+    log = np.array([log[log[:, 2] == i][-1, :] for i in np.unique(log[:, 2])])
+
+    plt.figure(figsize=(20, 20))
     plt.subplot(2, 1, 1)
     plt.xlabel('Time')
     plt.ylabel('Queue length')
