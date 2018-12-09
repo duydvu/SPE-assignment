@@ -1,8 +1,23 @@
 import simpy
 import random
 import numpy as np
+import matplotlib.pyplot as plt
+import settings
 
-INFINITE_TIME = 10000000
+INFINITE_TIME = settings.INFINITE_TIME
+# parameters
+SIM_TIME = settings.SIM_TIME
+LAMBDA = settings.LAMBDA
+MU1 = settings.MU1
+MU2 = settings.MU2
+MU3 = settings.MU3
+MU4 = settings.MU4
+P12 = settings.P12
+P21 = settings.P21
+P31 = settings.P31
+P41 = settings.P41
+REPLICATE = settings.REPLICATE
+MAX_NJOBS = settings.MAX_NJOBS
 
 
 class Job:
@@ -68,15 +83,19 @@ class Server:
                 if other_servers is not None:
                     next_server_des = np.random.choice(other_servers, p=prob_dist_servers)
                     next_server_des.Jobs.append(Job(j.id, self.env.now))
+                    next_server_des.log('%d\t1\t%d\t%d\t%d\n'
+                                        % (j.id, self.env.now, 1 if len(next_server_des.Jobs) > 0 else 0,
+                                        len(next_server_des.Jobs)))
                     if not next_server_des.server_sleeping.triggered:
                         next_server_des.server_sleeping.interrupt('Wake up, please.')
 
     def waiting(self):
         try:
-            print('Server is idle at %d' % self.env.now)
+            # print('Server is idle at %d' % self.env.now)
             yield self.env.timeout(INFINITE_TIME)
         except simpy.Interrupt:
-            print('A new job comes. Server waken up and works now at %d' % self.env.now)
+            # print('A new job comes. Server waken up and works now at %d' % self.env.now)
+            pass
 
     def log(self, message):
         if self.logger is not None:
@@ -115,25 +134,12 @@ class JobGenerator:
                 yield self.env.timeout(INFINITE_TIME)
 
 
-# parameters
-SIM_TIME = 500
-LAMBDA = 2
-MU1 = 1/.04
-MU2 = 1/.03
-MU3 = 1/.06
-MU4 = 1/.05
-P12 = .5
-P21 = 1
-P31 = .6
-P41 = 1
-REPLICATE = 5
-MAX_NJOBS = 10 * SIM_TIME * LAMBDA
-
 
 cpu_stats = []
 printer_stats = []
 disk_stats = []
 io_device_stats = []
+# lams = np.linspace(1, 7, 25)
 for i in range(REPLICATE):
     # open the log files and write header
     loggers = []
@@ -170,6 +176,11 @@ for i in range(REPLICATE):
     for logger in loggers:
         logger.close()
 
+    # cpu_stats.append(CPU.responseTime / MyJobGenerator.nJobs)
+    # printer_stats.append(PRINTER.responseTime / MyJobGenerator.nJobs)
+    # disk_stats.append(DISK.responseTime / MyJobGenerator.nJobs)
+    # io_device_stats.append(IO_DEVICE.responseTime / MyJobGenerator.nJobs)
+
     cpu_stats.append({
         'waitingTime': CPU.waitingTime,
         'responseTime': CPU.responseTime,
@@ -191,6 +202,17 @@ for i in range(REPLICATE):
         'idleTime': IO_DEVICE.idleTime,
     })
 
+# plt.figure(figsize=(7, 5))
+# plt.xlabel('Lambda')
+# plt.ylabel('Response Time')
+# plt.plot(lams, cpu_stats)
+# plt.plot(lams, printer_stats)
+# plt.plot(lams, disk_stats)
+# plt.plot(lams, io_device_stats)
+# plt.tight_layout()
+# plt.legend(['CPU', 'Printer', 'Disk', 'I/O Device'], loc='upper left')
+# plt.savefig('plots/1.png')
+# plt.close()
 
 devices = [
     {
@@ -237,10 +259,13 @@ for device in devices:
     U = 1 - device['stats']['idleTime'] / SIM_TIME
     print('Total server idle time : %.2f (U=%.2f)\n' % (device['stats']['idleTime'], U))
 
+over_all_waiting_time = np.sum([device['stats']['waitingTime'] for device in devices])
+over_all_response_time = np.sum([device['stats']['responseTime'] for device in devices])
+over_all_idle_time = np.sum([device['stats']['responseTime'] for device in devices])
 print('Overall System:')
-print('Total waiting time     : %.2f' % np.sum([device['stats']['waitingTime'] for device in devices]))
-print('Average waiting time   : %.2f' % (np.sum([device['stats']['waitingTime'] for device in devices]) / MyJobGenerator.nJobs))
-print('Total response time    : %.2f' % np.sum([device['stats']['responseTime'] for device in devices]))
-print('Average response time  : %.2f' % (np.sum([device['stats']['responseTime'] for device in devices]) / MyJobGenerator.nJobs))
-U = 1 - np.sum([device['stats']['idleTime'] for device in devices]) / SIM_TIME / 4
-print('Total server idle time : %.2f (U=%.2f)\n' % (np.sum([device['stats']['idleTime'] for device in devices]), U))
+print('Total waiting time     : %.2f' % over_all_waiting_time)
+print('Average waiting time   : %.2f' % (over_all_waiting_time / MyJobGenerator.nJobs))
+print('Total response time    : %.2f' % over_all_response_time)
+print('Average response time  : %.2f' % (over_all_response_time / MyJobGenerator.nJobs))
+U = over_all_waiting_time / over_all_response_time
+print('Total server idle time : %.2f (U=%.2f)\n' % (over_all_idle_time, U))

@@ -1,4 +1,6 @@
 .ipynb_checkpoints
 .idea
+__pycache__
 logs
 plots
+results

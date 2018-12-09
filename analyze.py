@@ -1,8 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import settings
 
-SIM_TIME = 500
-REPLICATE = 5
+SIM_TIME = settings.SIM_TIME
+REPLICATE = settings.REPLICATE
+
 
 for device in ['cpu', 'printer', 'disk', 'io_device']:
     logs = np.array([]).reshape((0, SIM_TIME, 5))
@@ -28,8 +30,8 @@ for device in ['cpu', 'printer', 'disk', 'io_device']:
     print("Mean queue length: %.2f" % over_all_mean)
 
     # plotting
-    plt.figure(figsize=(20, 20))
-    plt.subplot(2, 1, 1)
+    plt.figure(figsize=(15, 10))
+    plt.subplot(2, 1, 1, title=device)
     plt.xlabel('Time')
     plt.ylabel('Queue length')
     plt.step(mean_log[:, 2], mean_log[:, 4], where='post')
